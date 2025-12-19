@@ -8,6 +8,28 @@ local Config = require("shared.config")
 local Logging = require("shared.logging")
 local Updater = require("shared.updater")
 
+-- Swarm state (set by main.lua)
+local Swarm = nil
+
+--- Set the swarm state reference (called by main.lua)
+-- @param swarm_state table: Reference to swarm state from main
+function Commands.set_swarm(swarm_state)
+    Swarm = swarm_state
+end
+
+--- Get registered turtle count
+-- @return number: Count of registered turtles
+function Commands.get_turtle_count()
+    if not Swarm or not Swarm.turtles then
+        return 0
+    end
+    local count = 0
+    for _ in pairs(Swarm.turtles) do
+        count = count + 1
+    end
+    return count
+end
+
 -- ============================================================================
 -- COMMAND HANDLERS
 -- ============================================================================
@@ -120,9 +142,32 @@ function Commands.build(args)
     Logging.info("[Story 2.1] Build command not yet implemented")
 end
 
---- Placeholder for status command
+--- Display swarm status
 function Commands.status(args)
-    Logging.info("[Story 2.4] Status command not yet implemented")
+    local turtle_count = Commands.get_turtle_count()
+
+    Logging.info("")
+    Logging.info("============ SWARM STATUS ============")
+    Logging.info("Controller ID: " .. (Swarm and Swarm.controller_id or os.getComputerID()))
+    Logging.info("Registered Turtles: " .. turtle_count)
+    Logging.info("")
+
+    if turtle_count == 0 then
+        Logging.info("No turtles registered yet.")
+        Logging.info("Start turtles to have them auto-register.")
+    else
+        Logging.info("ID       STATE      POSITION           LABEL")
+        Logging.info("-------- ---------- ------------------ ----------------")
+        for id, turtle in pairs(Swarm.turtles) do
+            local pos = turtle.position or {x = "?", y = "?", z = "?"}
+            local pos_str = string.format("(%s, %s, %s)", pos.x, pos.y, pos.z)
+            local state = turtle.state or "UNKNOWN"
+            local label = turtle.label or ("Turtle-" .. id)
+            Logging.info(string.format("%-8s %-10s %-18s %s", id, state, pos_str, label))
+        end
+    end
+    Logging.info("")
+    Logging.info("=======================================")
 end
 
 --- Placeholder for recall command
@@ -143,6 +188,23 @@ end
 --- Placeholder for cancel command
 function Commands.cancel(args)
     Logging.info("[Future] Cancel command not yet implemented")
+end
+
+--- Display help information
+function Commands.help(args)
+    Logging.info("")
+    Logging.info("============ BASE BUILDER COMMANDS ============")
+    Logging.info("")
+    Logging.info("  status          - Show swarm status and turtle positions")
+    Logging.info("  update [--force] - Update controller and all turtles")
+    Logging.info("  build           - [Not yet implemented] Start a build")
+    Logging.info("  recall          - [Not yet implemented] Recall all turtles")
+    Logging.info("  pause           - [Not yet implemented] Pause operations")
+    Logging.info("  resume          - [Not yet implemented] Resume operations")
+    Logging.info("  cancel          - [Not yet implemented] Cancel current build")
+    Logging.info("  help            - Show this help message")
+    Logging.info("")
+    Logging.info("================================================")
 end
 
 -- ============================================================================
