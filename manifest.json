@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "min_compatible": "1.0.0",
+  "repo_base": "https://raw.githubusercontent.com/athompson-hoho/base-builder/main",
+  "files": {
+    "controller": [
+      "startup.lua",
+      "main.lua",
+      "commands.lua",
+      "swarm.lua",
+      "builder.lua",
+      "state.lua"
+    ],
+    "turtle": [
+      "startup.lua",
+      "main.lua",
+      "state_machine.lua",
+      "movement.lua",
+      "build.lua",
+      "fuel.lua",
+      "inventory.lua"
+    ],
+    "shared": [
+      "protocol.lua",
+      "config.lua",
+      "logging.lua",
+      "updater.lua"
+    ]
+  }
+}
