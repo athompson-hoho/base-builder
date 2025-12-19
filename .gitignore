@@ -1,0 +1,15 @@
+# Claude Code
+.claude/
+
+# Agent Vibes
+.agentvibes/
+
+# MCP Configuration
+.mcp.json
+
+# BMAD (Build Management and Deployment)
+_bmad/
+_bmad-output/
+
+# Installation scripts
+install.lua
