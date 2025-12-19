@@ -6,22 +6,13 @@
     "controller": [
       "startup.lua",
       "main.lua",
-      "commands.lua",
-      "swarm.lua",
-      "builder.lua",
-      "state.lua"
+      "commands.lua"
     ],
     "turtle": [
       "startup.lua",
-      "main.lua",
-      "state_machine.lua",
-      "movement.lua",
-      "build.lua",
-      "fuel.lua",
-      "inventory.lua"
+      "main.lua"
     ],
     "shared": [
-      "protocol.lua",
       "config.lua",
       "logging.lua",
       "updater.lua"
