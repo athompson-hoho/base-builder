@@ -316,10 +316,26 @@ end
 function Commands.status(args)
     local turtle_count = Commands.get_turtle_count()
 
+    -- Count online vs timeout turtles (Story 2.4 AC1)
+    local online_count = 0
+    local timeout_count = 0
+    local alerts = {}
+
+    if Swarm and Swarm.turtles then
+        for id, turtle in pairs(Swarm.turtles) do
+            if turtle.state == "TIMEOUT" then
+                timeout_count = timeout_count + 1
+                table.insert(alerts, "Turtle " .. id .. " is not responding")
+            else
+                online_count = online_count + 1
+            end
+        end
+    end
+
     Logging.info("")
     Logging.info("============ SWARM STATUS ============")
     Logging.info("Controller ID: " .. (Swarm and Swarm.controller_id or os.getComputerID()))
-    Logging.info("Registered Turtles: " .. turtle_count)
+    Logging.info("Turtles: " .. online_count .. "/" .. turtle_count .. " online")
     Logging.info("")
 
     -- Build progress (Story 2.3 AC4)
@@ -348,22 +364,39 @@ function Commands.status(args)
         Logging.info("")
     end
 
-    -- Turtle list
+    -- Turtle list (Story 2.4 AC2)
     if turtle_count == 0 then
         Logging.info("No turtles registered yet.")
         Logging.info("Start turtles to have them auto-register.")
     else
         Logging.info("--- TURTLES ---")
-        Logging.info("ID       STATE      POSITION           LABEL")
+        Logging.info("ID       STATE      POSITION           TASK")
         Logging.info("-------- ---------- ------------------ ----------------")
         for id, turtle in pairs(Swarm.turtles) do
             local pos = turtle.position or {x = "?", y = "?", z = "?"}
             local pos_str = string.format("(%s, %s, %s)", pos.x, pos.y, pos.z)
             local state = turtle.state or "UNKNOWN"
-            local label = turtle.label or ("Turtle-" .. id)
-            Logging.info(string.format("%-8s %-10s %-18s %s", id, state, pos_str, label))
+
+            -- Show current task/sector (Story 2.4 AC2)
+            local task = "-"
+            if Swarm.assignments and Swarm.assignments[id] then
+                local sector = Swarm.assignments[id]
+                task = "Sector " .. sector.id
+            end
+
+            Logging.info(string.format("%-8s %-10s %-18s %s", id, state, pos_str, task))
         end
     end
+
+    -- Alerts section (Story 2.4 AC5)
+    if #alerts > 0 then
+        Logging.info("")
+        Logging.info("--- ALERTS ---")
+        for _, alert in ipairs(alerts) do
+            Logging.info("[!] " .. alert)
+        end
+    end
+
     Logging.info("")
     Logging.info("=======================================")
 end
