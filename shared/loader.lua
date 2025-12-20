@@ -33,46 +33,12 @@ local function require(module_path)
     end
 
     -- Execute the module in a protected environment
-    local env = {
-        -- Provide standard globals
-        _G = _G,
+    -- Use metatable to inherit from _G, with custom require override
+    local env = setmetatable({
         require = require,  -- Allow modules to require other modules
-        print = print,
-        write = write,
-        read = read,
-        readLine = readLine,
-        sleep = sleep,
-        os = os,
-        math = math,
-        table = table,
-        string = string,
-        textutils = textutils,
-        fs = fs,
-        peripheral = peripheral,
-        rednet = rednet,
-        http = http,
-        term = term,
-        parallel = parallel,
-        coroutine = coroutine,
-        -- Standard Lua functions
-        tonumber = tonumber,
-        tostring = tostring,
-        type = type,
-        pairs = pairs,
-        ipairs = ipairs,
-        next = next,
-        error = error,
-        pcall = pcall,
-        xpcall = xpcall,
-        assert = assert,
-        select = select,
-        getmetatable = getmetatable,
-        setmetatable = setmetatable,
-        rawget = rawget,
-        rawset = rawset,
-        rawequal = rawequal,
-        unpack = unpack or table.unpack,
-    }
+    }, {
+        __index = _G
+    })
 
     local chunk, err = load(content, "@" .. file_path)
     if not chunk then
