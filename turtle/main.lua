@@ -14,11 +14,12 @@ local Updater = require("shared.updater")
 local TurtleState = {
     id = os.getComputerID(),
     label = os.getComputerLabel() or ("Turtle-" .. os.getComputerID()),
-    state = "IDLE",             -- IDLE, WORKING, RETURNING, UPDATING, TIMEOUT
+    state = "IDLE",             -- IDLE, TRAVELING, EXCAVATING, BUILDING, RETURNING, UPDATING, TIMEOUT
     position = {x = 0, y = 0, z = 0},
     controller_id = nil,        -- Set after registration
     registered = false,
-    last_task = nil
+    last_task = nil,
+    current_sector = nil        -- Assigned sector from TASK_ASSIGN
 }
 
 -- ============================================================================
@@ -106,12 +107,36 @@ local function handle_message(sender, message)
             TurtleState.state = "IDLE"
         end
 
-    elseif msg_type == "BUILD_TASK" then
-        -- Receive build task (Story 2.2)
-        Logging.info("Received build task from controller")
-        TurtleState.last_task = message.task
-        TurtleState.state = "WORKING"
-        -- Task execution will be implemented in Epic 2
+    elseif msg_type == "TASK_ASSIGN" then
+        -- Receive sector assignment (Story 2.2)
+        local sector = message.sector
+        if sector then
+            Logging.info("Received sector " .. (sector.id or "?") .. " assignment")
+            Logging.info("  X: " .. sector.x_start .. " to " .. sector.x_end)
+            Logging.info("  Z: " .. sector.z_start .. " to " .. sector.z_end)
+            Logging.info("  Y: " .. sector.y_bottom .. " to " .. sector.y_top)
+
+            -- Store task info
+            TurtleState.current_sector = sector
+            TurtleState.last_task = {
+                type = message.build_type or "room",
+                sector = sector
+            }
+            TurtleState.state = "TRAVELING"
+
+            -- Send acknowledgment
+            rednet.send(sender, {
+                type = "TASK_ACK",
+                turtle_id = TurtleState.id,
+                sector_id = sector.id
+            })
+            Logging.debug("Sent TASK_ACK for sector " .. sector.id)
+
+            -- Actual excavation/building will be implemented in Epic 3
+            Logging.info("[Epic 3] Sector execution not yet implemented")
+        else
+            Logging.error("TASK_ASSIGN missing sector data")
+        end
 
     elseif msg_type == "RECALL" then
         -- Recall to home (Story 2.5)

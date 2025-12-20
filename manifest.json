@@ -6,7 +6,8 @@
     "controller": [
       "startup.lua",
       "main.lua",
-      "commands.lua"
+      "commands.lua",
+      "builder.lua"
     ],
     "turtle": [
       "startup.lua",

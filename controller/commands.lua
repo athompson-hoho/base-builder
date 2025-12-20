@@ -7,6 +7,7 @@ local Commands = {}
 local Config = require("shared.config")
 local Logging = require("shared.logging")
 local Updater = require("shared.updater")
+local Builder = require("controller.builder")
 
 -- Swarm state (set by main.lua)
 local Swarm = nil
@@ -137,9 +138,167 @@ function Commands.update(args)
     os.reboot()
 end
 
---- Placeholder for build command
+--- Build command handler
+-- Usage: build room <width> <length>
+-- @param args table: {"room", width, length}
 function Commands.build(args)
-    Logging.info("[Story 2.1] Build command not yet implemented")
+    args = args or {}
+
+    -- Check subcommand (AC1)
+    if not args[1] or args[1] ~= "room" then
+        Logging.info("Usage: build room <width> <length>")
+        return
+    end
+
+    -- Parse dimensions (AC2)
+    local width_raw = tonumber(args[2])
+    local length_raw = tonumber(args[3])
+
+    if not width_raw or not length_raw then
+        Logging.error("Width and length must be positive integers")
+        Logging.info("Usage: build room <width> <length>")
+        return
+    end
+
+    -- Ensure integer dimensions
+    local width = math.floor(width_raw)
+    local length = math.floor(length_raw)
+
+    if width <= 0 or length <= 0 then
+        Logging.error("Width and length must be positive integers")
+        Logging.info("Usage: build room <width> <length>")
+        return
+    end
+
+    -- Validate maximum size
+    if width > Config.MAX_ROOM_WIDTH or length > Config.MAX_ROOM_LENGTH then
+        Logging.error("Room too large. Maximum size: " .. Config.MAX_ROOM_WIDTH .. "x" .. Config.MAX_ROOM_LENGTH)
+        return
+    end
+
+    -- Validate turtle count (AC3)
+    local turtle_count = Commands.get_turtle_count()
+    if turtle_count == 0 then
+        Logging.error("No turtles registered. Start turtles first.")
+        return
+    end
+
+    -- Check for existing build in progress
+    if fs.exists(Config.BUILD_STATE_FILE) then
+        local existing_file = fs.open(Config.BUILD_STATE_FILE, "r")
+        if existing_file then
+            local content = existing_file.readAll()
+            existing_file.close()
+            if content and content ~= "" then
+                local existing_build = textutils.unserialize(content)
+                if existing_build and existing_build.phase ~= "COMPLETE" then
+                    Logging.error("Build already in progress (" .. existing_build.width .. "x" .. existing_build.length .. ")")
+                    Logging.info("Use 'cancel' to abort the current build first")
+                    return
+                end
+            end
+        end
+    end
+
+    -- Get build origin - GPS or config fallback (AC5)
+    local origin_x, origin_y, origin_z = gps.locate(5)
+    if not origin_x then
+        -- Fall back to configured origin
+        origin_x = Config.BUILD_ORIGIN_X or 0
+        origin_y = Config.BUILD_ORIGIN_Y or 64
+        origin_z = Config.BUILD_ORIGIN_Z or 0
+        Logging.warn("GPS unavailable, using configured origin")
+    end
+
+    -- Create build definition (AC4)
+    local build_definition = {
+        type = "room",
+        width = width,
+        length = length,
+        height = Config.ROOM_HEIGHT,  -- 7-high walls + 2-high crawl space = 9
+        origin = {
+            x = origin_x,
+            y = origin_y,
+            z = origin_z
+        },
+        started_at = os.clock(),
+        progress = 0,
+        phase = "PENDING"  -- PENDING → EXCAVATING → BUILDING → COMPLETE
+    }
+
+    -- Save build state
+    if not fs.exists("/state") then
+        fs.makeDir("/state")
+    end
+    local file = fs.open(Config.BUILD_STATE_FILE, "w")
+    if file then
+        file.write(textutils.serialize(build_definition))
+        file.close()
+        Logging.debug("Build state saved to " .. Config.BUILD_STATE_FILE)
+    else
+        Logging.error("Failed to save build state")
+        return
+    end
+
+    -- Confirm to user (AC4)
+    Logging.info("")
+    Logging.info("Starting room build: " .. width .. "x" .. length .. " at GPS (" ..
+                 origin_x .. ", " .. origin_y .. ", " .. origin_z .. ")")
+    Logging.info("Room height: " .. build_definition.height .. " blocks (7 walls + 2 crawl)")
+    Logging.info("Turtles available: " .. turtle_count)
+    Logging.info("")
+
+    -- Calculate sectors for parallel work distribution (AC5)
+    local sectors = Builder.calculate_sectors(
+        width,
+        length,
+        build_definition.height,
+        build_definition.origin,
+        turtle_count
+    )
+
+    if #sectors == 0 then
+        Logging.error("Failed to calculate sectors")
+        return
+    end
+
+    -- Verify swarm state is available
+    if not Swarm or not Swarm.turtles then
+        Logging.error("Swarm state unavailable")
+        return
+    end
+
+    -- Store sectors in swarm state for tracking
+    Swarm.sectors = sectors
+    Swarm.build = build_definition
+
+    -- Assign sectors to available turtles (AC6)
+    local assignments, pending = Builder.assign_sectors(sectors, Swarm.turtles, rednet.send)
+
+    -- Store assignments and pending queue in swarm state
+    Swarm.assignments = assignments
+    Swarm.pending_sectors = pending
+
+    -- Update build phase
+    build_definition.phase = "EXCAVATING"
+
+    -- Save updated build state
+    local phase_file = fs.open(Config.BUILD_STATE_FILE, "w")
+    if phase_file then
+        phase_file.write(textutils.serialize(build_definition))
+        phase_file.close()
+    end
+
+    -- Summary
+    local assigned_count = 0
+    for _ in pairs(assignments) do
+        assigned_count = assigned_count + 1
+    end
+    Logging.info("Assigned " .. assigned_count .. " sectors to turtles")
+    if #pending > 0 then
+        Logging.info(#pending .. " sectors queued for turtles that finish early")
+    end
+    Logging.info("Build phase: EXCAVATING")
 end
 
 --- Display swarm status
@@ -195,14 +354,14 @@ function Commands.help(args)
     Logging.info("")
     Logging.info("============ BASE BUILDER COMMANDS ============")
     Logging.info("")
-    Logging.info("  status          - Show swarm status and turtle positions")
-    Logging.info("  update [--force] - Update controller and all turtles")
-    Logging.info("  build           - [Not yet implemented] Start a build")
-    Logging.info("  recall          - [Not yet implemented] Recall all turtles")
-    Logging.info("  pause           - [Not yet implemented] Pause operations")
-    Logging.info("  resume          - [Not yet implemented] Resume operations")
-    Logging.info("  cancel          - [Not yet implemented] Cancel current build")
-    Logging.info("  help            - Show this help message")
+    Logging.info("  build room <width> <length>  - Start room construction")
+    Logging.info("  status                       - Show swarm status and turtle positions")
+    Logging.info("  update [--force]             - Update controller and all turtles")
+    Logging.info("  recall                       - [Not yet implemented] Recall all turtles")
+    Logging.info("  pause                        - [Not yet implemented] Pause operations")
+    Logging.info("  resume                       - [Not yet implemented] Resume operations")
+    Logging.info("  cancel                       - [Not yet implemented] Cancel current build")
+    Logging.info("  help                         - Show this help message")
     Logging.info("")
     Logging.info("================================================")
 end

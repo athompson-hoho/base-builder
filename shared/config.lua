@@ -34,6 +34,8 @@ Config.MODEM_SIDE = "right"           -- Default modem side (can be auto-detecte
 Config.REDNET_CHANNEL = 1             -- Single Rednet channel for swarm
 Config.HEARTBEAT_INTERVAL = 5         -- Seconds between heartbeats
 Config.HEARTBEAT_TIMEOUT = 30         -- Seconds before turtle marked offline
+Config.TASK_ACK_TIMEOUT = 5           -- Seconds to wait for TASK_ACK
+Config.TASK_ACK_RETRIES = 3           -- Times to retry TASK_ASSIGN
 
 -- ============================================================================
 -- FUEL CONFIGURATION
@@ -46,8 +48,14 @@ Config.REFUEL_THRESHOLD = 2000        -- Fuel level to trigger refueling
 -- BUILD CONFIGURATION
 -- ============================================================================
 
-Config.ROOM_WIDTH = 7                 -- Width of room (including walls)
-Config.ROOM_HEIGHT = 2                -- Height of room (without walls/ceiling)
-Config.ROOM_LENGTH = 7                -- Length of room (including walls)
+Config.ROOM_HEIGHT = 9                -- Total excavation height (7 walls + 2 crawl)
+Config.WALL_HEIGHT = 7                -- Height of room walls
+Config.MAX_ROOM_WIDTH = 64            -- Maximum room width
+Config.MAX_ROOM_LENGTH = 64           -- Maximum room length
+
+-- Build origin fallback (used if GPS unavailable)
+Config.BUILD_ORIGIN_X = 0
+Config.BUILD_ORIGIN_Y = 64
+Config.BUILD_ORIGIN_Z = 0
 
 return Config

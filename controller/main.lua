@@ -13,7 +13,11 @@ local Commands = require("controller.commands")
 
 local Swarm = {
     turtles = {},           -- Registered turtles: {id = {state, position, last_heartbeat}}
-    controller_id = os.getComputerID()
+    controller_id = os.getComputerID(),
+    build = nil,            -- Current build definition (set by Commands.build)
+    sectors = {},           -- Sector definitions for current build
+    pending_sectors = {},   -- Sectors waiting to be assigned
+    assignments = {}        -- Current turtle -> sector assignments
 }
 
 -- State persistence file path
@@ -172,6 +176,72 @@ local function handle_message(sender, message)
         if Swarm.turtles[sender] then
             Swarm.turtles[sender].update_failed = true
             Swarm.turtles[sender].update_error = message.error
+        end
+
+    elseif msg_type == "TASK_ACK" then
+        -- Turtle acknowledged task assignment (Story 2.2)
+        local sector_id = message.sector_id
+        Logging.info("Turtle " .. sender .. " acknowledged sector " .. (sector_id or "?"))
+        if Swarm.turtles[sender] then
+            Swarm.turtles[sender].task_acked = true
+            Swarm.turtles[sender].state = "TRAVELING"
+        end
+
+    elseif msg_type == "SECTOR_COMPLETE" then
+        -- Turtle completed assigned sector (Story 2.2)
+        local sector_id = message.sector_id
+        Logging.info("Turtle " .. sender .. " completed sector " .. (sector_id or "?"))
+
+        -- Mark sector as complete
+        for _, sector in ipairs(Swarm.sectors) do
+            if sector.id == sector_id then
+                sector.status = "complete"
+                break
+            end
+        end
+
+        -- Try to assign next pending sector
+        if #Swarm.pending_sectors > 0 then
+            local next_sector = table.remove(Swarm.pending_sectors, 1)
+            next_sector.assigned_to = sender
+            next_sector.status = "assigned"
+            Swarm.assignments[sender] = next_sector
+
+            rednet.send(sender, {
+                type = "TASK_ASSIGN",
+                sector = {
+                    id = next_sector.id,
+                    x_start = next_sector.x_start,
+                    x_end = next_sector.x_end,
+                    z_start = next_sector.z_start,
+                    z_end = next_sector.z_end,
+                    y_top = next_sector.y_top,
+                    y_bottom = next_sector.y_bottom
+                },
+                build_type = "room"
+            })
+            Logging.info("Assigned next sector " .. next_sector.id .. " to turtle " .. sender)
+        else
+            -- No more sectors - turtle goes idle
+            if Swarm.turtles[sender] then
+                Swarm.turtles[sender].state = "IDLE"
+            end
+            Swarm.assignments[sender] = nil
+
+            -- Check if all sectors are complete
+            local all_complete = true
+            for _, sector in ipairs(Swarm.sectors) do
+                if sector.status ~= "complete" then
+                    all_complete = false
+                    break
+                end
+            end
+            if all_complete and #Swarm.sectors > 0 then
+                Logging.info("BUILD COMPLETE! All sectors finished.")
+                if Swarm.build then
+                    Swarm.build.phase = "COMPLETE"
+                end
+            end
         end
 
     else
