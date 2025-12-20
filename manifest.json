@@ -14,7 +14,8 @@
       "main.lua",
       "movement.lua",
       "excavator.lua",
-      "builder.lua"
+      "builder.lua",
+      "inventory.lua"
     ],
     "shared": [
       "loader.lua",
