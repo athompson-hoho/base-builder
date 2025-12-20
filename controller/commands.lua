@@ -401,9 +401,48 @@ function Commands.status(args)
     Logging.info("=======================================")
 end
 
---- Placeholder for recall command
+--- Recall all turtles to home base
+-- Usage: recall
 function Commands.recall(args)
-    Logging.info("[Story 2.5] Recall command not yet implemented")
+    if not Swarm or not Swarm.turtles then
+        Logging.error("No swarm state available")
+        return
+    end
+
+    local turtle_count = Commands.get_turtle_count()
+    if turtle_count == 0 then
+        Logging.info("No turtles registered to recall")
+        return
+    end
+
+    -- Count non-timeout turtles
+    local recall_count = 0
+    for id, turtle in pairs(Swarm.turtles) do
+        if turtle.state ~= "TIMEOUT" then
+            -- Send RECALL message
+            rednet.send(id, {
+                type = "RECALL",
+                reason = "user_command"
+            })
+            recall_count = recall_count + 1
+        end
+    end
+
+    -- Update build phase if active build
+    if Swarm.build and Swarm.build.phase ~= "COMPLETE" then
+        Swarm.build.phase = "PAUSED"
+
+        -- Persist paused state
+        local file = fs.open(Config.BUILD_STATE_FILE, "w")
+        if file then
+            file.write(textutils.serialize(Swarm.build))
+            file.close()
+        end
+        Logging.info("Build paused at " .. Builder.get_progress(Swarm.sectors or {}) .. "%")
+    end
+
+    Logging.info("Recall issued to " .. recall_count .. " turtles")
+    Logging.info("Turtles will return to home base")
 end
 
 --- Placeholder for pause command

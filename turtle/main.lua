@@ -19,7 +19,8 @@ local TurtleState = {
     controller_id = nil,        -- Set after registration
     registered = false,
     last_task = nil,
-    current_sector = nil        -- Assigned sector from TASK_ASSIGN
+    current_sector = nil,       -- Assigned sector from TASK_ASSIGN
+    saved_sector = nil          -- Saved sector for resume after RECALL
 }
 
 -- ============================================================================
@@ -140,9 +141,21 @@ local function handle_message(sender, message)
 
     elseif msg_type == "RECALL" then
         -- Recall to home (Story 2.5)
-        Logging.info("Recall command received")
+        Logging.info("Recall command received from controller")
+        Logging.info("Reason: " .. (message.reason or "unknown"))
+
+        -- Save current task for resume
+        if TurtleState.current_sector then
+            TurtleState.saved_sector = TurtleState.current_sector
+            TurtleState.current_sector = nil
+        end
+
+        -- Transition to RETURNING state
         TurtleState.state = "RETURNING"
-        -- Return logic will be implemented in Epic 2
+
+        -- Navigation to home base will be implemented in Epic 3
+        Logging.info("[Epic 3] Home navigation not yet implemented")
+        Logging.info("Turtle will remain at current position until navigation is available")
 
     elseif msg_type == "PAUSE" then
         -- Pause operations (Story 2.6)
