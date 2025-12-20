@@ -54,6 +54,24 @@ local function require(module_path)
         term = term,
         parallel = parallel,
         coroutine = coroutine,
+        -- Standard Lua functions
+        tonumber = tonumber,
+        tostring = tostring,
+        type = type,
+        pairs = pairs,
+        ipairs = ipairs,
+        next = next,
+        error = error,
+        pcall = pcall,
+        xpcall = xpcall,
+        assert = assert,
+        select = select,
+        getmetatable = getmetatable,
+        setmetatable = setmetatable,
+        rawget = rawget,
+        rawset = rawset,
+        rawequal = rawequal,
+        unpack = unpack or table.unpack,
     }
 
     local chunk, err = load(content, "@" .. file_path, "t", env)
