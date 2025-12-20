@@ -8,9 +8,39 @@ This project uses **Semantic Versioning** (X.Y.Z) to track releases:
 
 ## Automatic Version Bumping
 
-### Quick Start
+### GitHub Actions (Recommended - Fully Automatic)
 
-Before committing code changes (except version bumps), run:
+GitHub Actions automatically bumps versions on every push to `main` based on conventional commits.
+
+**How it works:**
+1. You push code to GitHub with a conventional commit message
+2. GitHub Actions workflow triggers automatically
+3. Workflow determines version bump type from commit message
+4. Updates version files and commits back to repository
+5. Creates a release tag and GitHub Release
+
+**No manual steps required!** Just push your code with a proper commit message.
+
+### Commit Message Format
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) for automatic version detection:
+
+```
+fix: Brief description        → PATCH version (1.0.0 → 1.0.1)
+feat: Brief description       → MINOR version (1.0.0 → 1.1.0)
+BREAKING CHANGE: Description  → MAJOR version (1.0.0 → 2.0.0)
+```
+
+**Examples:**
+```bash
+git commit -m "fix: Modem detection for non-standard sides"
+git commit -m "feat: Add turtle excavation state persistence"
+git commit -m "BREAKING CHANGE: Redesigned message protocol"
+```
+
+### Local Version Bumping (Optional)
+
+If you want to manually bump versions locally before pushing:
 
 ```bash
 # Bump patch version (for bug fixes, minor changes)
@@ -21,9 +51,6 @@ lua bin/version-bump.lua minor
 
 # Bump major version (for breaking changes)
 lua bin/version-bump.lua major
-
-# Auto-detect from commit message (default)
-lua bin/version-bump.lua
 ```
 
 This will:
@@ -31,57 +58,14 @@ This will:
 2. Update `manifest.json` with new version
 3. Print the new version
 
-Then commit normally:
-
+Then commit and push:
 ```bash
-git add shared/config.lua manifest.json bin/version-bump.lua
-git commit -m "Fix: [your message]"
+git add shared/config.lua manifest.json
+git commit -m "chore: Bump version to 1.0.2"
+git push
 ```
 
-### Recommended Workflow
-
-1. **Make your code changes**
-2. **Run version bump**:
-   ```bash
-   lua bin/version-bump.lua patch  # for bug fixes
-   ```
-3. **Commit with descriptive message**:
-   ```bash
-   git commit -m "Fix: Module loader environment isolation (v1.0.1)"
-   ```
-
-### Automatic Git Hook (Optional - Git Bash only)
-
-For automated versioning on every commit, you can install a pre-commit hook:
-
-```bash
-# Make the hook executable
-chmod +x .git/hooks/pre-commit
-
-# Copy the provided hook (or create your own)
-cp hooks/pre-commit.sh .git/hooks/pre-commit
-```
-
-The hook will automatically bump the patch version before each commit unless the commit message contains:
-- `Bump version` - Skip versioning (already a version commit)
-- `BREAKING CHANGE:` - Bump major version
-- `feat:` - Bump minor version
-- Otherwise - Bump patch version
-
-### Commit Message Format (Conventional Commits)
-
-While not required, following this format helps with automated tools:
-
-```
-fix: Brief description
-Minor improvements or bug fixes → Bumps PATCH version
-
-feat: Brief description
-New features → Bumps MINOR version
-
-BREAKING CHANGE: Description
-API changes or incompatible updates → Bumps MAJOR version
-```
+**Note:** If you manually bump the version, the GitHub Actions workflow will detect the "Bump version" message and skip automatic bumping to avoid conflicts.
 
 ## Version Files
 

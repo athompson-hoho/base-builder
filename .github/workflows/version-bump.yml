@@ -1,0 +1,164 @@
+name: Auto-Bump Version
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'controller/**'
+      - 'turtle/**'
+      - 'shared/**'
+      - '!**.md'
+
+permissions:
+  contents: write
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need at least 2 commits to detect changes
+
+      - name: Check if version was just bumped
+        id: check_version_bump
+        run: |
+          # Get the latest commit message
+          LATEST_MSG=$(git log -1 --pretty=%B)
+
+          # Skip if this is already a version bump commit
+          if [[ "$LATEST_MSG" == *"Bump version"* ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node.js
+        if: steps.check_version_bump.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Determine version bump type
+        if: steps.check_version_bump.outputs.skip == 'false'
+        id: bump_type
+        run: |
+          # Get the latest commit message
+          LATEST_MSG=$(git log -1 --pretty=%B)
+          echo "Commit message: $LATEST_MSG"
+
+          # Determine bump type based on conventional commits
+          if [[ "$LATEST_MSG" == *"BREAKING CHANGE"* ]] || [[ "$LATEST_MSG" == "feat!"* ]]; then
+            echo "type=major" >> $GITHUB_OUTPUT
+            echo "Detected: MAJOR version bump"
+          elif [[ "$LATEST_MSG" == "feat:"* ]]; then
+            echo "type=minor" >> $GITHUB_OUTPUT
+            echo "Detected: MINOR version bump"
+          else
+            # Default to patch for fixes, docs, refactors, etc.
+            echo "type=patch" >> $GITHUB_OUTPUT
+            echo "Detected: PATCH version bump"
+          fi
+
+      - name: Parse current version
+        if: steps.check_version_bump.outputs.skip == 'false'
+        id: current_version
+        run: |
+          VERSION=$(grep 'Config.VERSION = ' shared/config.lua | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          echo "major=$MAJOR" >> $GITHUB_OUTPUT
+          echo "minor=$MINOR" >> $GITHUB_OUTPUT
+          echo "patch=$PATCH" >> $GITHUB_OUTPUT
+
+      - name: Calculate new version
+        if: steps.check_version_bump.outputs.skip == 'false'
+        id: new_version
+        run: |
+          MAJOR=${{ steps.current_version.outputs.major }}
+          MINOR=${{ steps.current_version.outputs.minor }}
+          PATCH=${{ steps.current_version.outputs.patch }}
+          BUMP_TYPE=${{ steps.bump_type.outputs.type }}
+
+          if [ "$BUMP_TYPE" = "major" ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [ "$BUMP_TYPE" = "minor" ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Update version files
+        if: steps.check_version_bump.outputs.skip == 'false'
+        run: |
+          NEW_VERSION=${{ steps.new_version.outputs.version }}
+
+          # Update shared/config.lua
+          sed -i "s/Config.VERSION = \"[^\"]*\"/Config.VERSION = \"$NEW_VERSION\"/" shared/config.lua
+          echo "Updated shared/config.lua"
+
+          # Update manifest.json
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$NEW_VERSION\"/" manifest.json
+          echo "Updated manifest.json"
+
+          # Verify changes
+          echo ""
+          echo "Changes:"
+          grep 'Config.VERSION' shared/config.lua
+          grep '"version"' manifest.json
+
+      - name: Configure Git
+        if: steps.check_version_bump.outputs.skip == 'false'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "Version Bump Bot"
+
+      - name: Commit and push version bump
+        if: steps.check_version_bump.outputs.skip == 'false'
+        run: |
+          NEW_VERSION=${{ steps.new_version.outputs.version }}
+          OLD_VERSION=${{ steps.current_version.outputs.version }}
+
+          git add shared/config.lua manifest.json
+          git commit -m "chore: Bump version $OLD_VERSION → $NEW_VERSION
+
+- Automated version bump by GitHub Actions
+- Previous version: $OLD_VERSION
+- New version: $NEW_VERSION
+- Trigger: $(git log -1 --pretty=%B | head -1)"
+          git push
+
+      - name: Create Release Tag
+        if: steps.check_version_bump.outputs.skip == 'false'
+        run: |
+          NEW_VERSION=${{ steps.new_version.outputs.version }}
+          git tag -a "v$NEW_VERSION" -m "Version $NEW_VERSION"
+          git push origin "v$NEW_VERSION"
+
+      - name: Create GitHub Release
+        if: steps.check_version_bump.outputs.skip == 'false'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.new_version.outputs.version }}
+          release_name: Release v${{ steps.new_version.outputs.version }}
+          body: |
+            ## What Changed
+            - Bump from v${{ steps.current_version.outputs.version }} → v${{ steps.new_version.outputs.version }}
+            - Bump type: ${{ steps.bump_type.outputs.type }}
+            - Trigger commit: $(git log -1 --oneline)
+          draft: false
+          prerelease: false
