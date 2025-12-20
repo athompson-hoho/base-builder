@@ -201,10 +201,28 @@ end
 -- PARALLEL EVENT LOOPS
 -- ============================================================================
 
+--- Display startup banner with version and turtle count
+local function display_startup_banner()
+    local turtle_count = 0
+    for _ in pairs(Swarm.turtles) do
+        turtle_count = turtle_count + 1
+    end
+
+    print("")
+    print("========================================")
+    print("   BASE BUILDER CONTROLLER v" .. Config.VERSION)
+    print("========================================")
+    print("")
+    print("Controller ID: " .. Swarm.controller_id)
+    print("Registered Turtles: " .. turtle_count)
+    print("")
+    print("Type 'help' for available commands")
+    print("")
+end
+
 --- Command input loop - handles user commands
 local function command_loop()
-    Logging.info("Base Builder Controller ready")
-    Logging.info("Type 'help' for available commands")
+    display_startup_banner()
 
     while true do
         write("> ")

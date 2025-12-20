@@ -10,7 +10,8 @@
     ],
     "turtle": [
       "startup.lua",
-      "main.lua"
+      "main.lua",
+      "movement.lua"
     ],
     "shared": [
       "config.lua",
