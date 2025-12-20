@@ -32,9 +32,11 @@ local function require(module_path)
         error("Failed to read module: " .. module_path)
     end
 
-    -- Load module with explicit access to global environment
-    -- Pass _G as the environment parameter so chunks inherit all standard Lua globals
-    local chunk, err = load(content, "@" .. file_path, nil, _G)
+    -- Load module with explicit access to the real global environment
+    -- getfenv(load) gets the environment where load() is defined (in BIOS),
+    -- which is the actual global environment, not the shell's isolated environment
+    local real_globals = getfenv(load)
+    local chunk, err = load(content, "@" .. file_path, nil, real_globals)
     if not chunk then
         error("Failed to parse module " .. module_path .. ": " .. (err or "unknown error"))
     end
