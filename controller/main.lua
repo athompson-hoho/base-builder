@@ -228,20 +228,55 @@ local function handle_message(sender, message)
             end
             Swarm.assignments[sender] = nil
 
-            -- Check if all sectors are complete
+            -- Check if all sectors are complete (Story 2.3 AC6)
             local all_complete = true
+            local sectors_completed = 0
             for _, sector in ipairs(Swarm.sectors) do
-                if sector.status ~= "complete" then
+                if sector.status == "complete" then
+                    sectors_completed = sectors_completed + 1
+                else
                     all_complete = false
-                    break
                 end
             end
+
             if all_complete and #Swarm.sectors > 0 then
-                Logging.info("BUILD COMPLETE! All sectors finished.")
+                Logging.info("")
+                Logging.info("========================================")
+                Logging.info("  ROOM COMPLETE!")
+                Logging.info("========================================")
+                Logging.info("All " .. #Swarm.sectors .. " sectors finished.")
                 if Swarm.build then
                     Swarm.build.phase = "COMPLETE"
+                    Swarm.build.sectors_completed = sectors_completed
+                    Swarm.build.progress = 100
+
+                    -- Persist completed build state
+                    local Config = require("shared.config")
+                    local file = fs.open(Config.BUILD_STATE_FILE, "w")
+                    if file then
+                        file.write(textutils.serialize(Swarm.build))
+                        file.close()
+                    end
                 end
+                Logging.info("")
             end
+        end
+
+    elseif msg_type == "PROGRESS_UPDATE" then
+        -- Track block-level progress from turtles (Story 2.3 AC2)
+        local sector_id = message.sector_id
+        local blocks = message.blocks_completed or 0
+
+        if Swarm.build then
+            Swarm.build.blocks_completed = (Swarm.build.blocks_completed or 0) + blocks
+            -- Recalculate progress percentage
+            if Swarm.build.total_blocks and Swarm.build.total_blocks > 0 then
+                Swarm.build.progress = math.floor(
+                    (Swarm.build.blocks_completed / Swarm.build.total_blocks) * 100
+                )
+            end
+            Logging.debug("Progress: " .. Swarm.build.blocks_completed .. "/" ..
+                         (Swarm.build.total_blocks or 0) .. " blocks")
         end
 
     else

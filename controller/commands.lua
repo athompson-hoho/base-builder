@@ -210,6 +210,9 @@ function Commands.build(args)
         Logging.warn("GPS unavailable, using configured origin")
     end
 
+    -- Calculate total blocks for progress tracking (Story 2.3 AC1)
+    local total_blocks = width * length * Config.ROOM_HEIGHT
+
     -- Create build definition (AC4)
     local build_definition = {
         type = "room",
@@ -223,7 +226,12 @@ function Commands.build(args)
         },
         started_at = os.clock(),
         progress = 0,
-        phase = "PENDING"  -- PENDING → EXCAVATING → BUILDING → COMPLETE
+        phase = "PENDING",  -- PENDING → EXCAVATING → BUILDING → COMPLETE
+        -- Progress tracking (Story 2.3)
+        total_blocks = total_blocks,
+        blocks_completed = 0,
+        sectors_completed = 0,
+        total_sectors = 0  -- Set after sector calculation
     }
 
     -- Save build state
@@ -268,6 +276,9 @@ function Commands.build(args)
         return
     end
 
+    -- Update total_sectors now that we know how many
+    build_definition.total_sectors = #sectors
+
     -- Store sectors in swarm state for tracking
     Swarm.sectors = sectors
     Swarm.build = build_definition
@@ -311,10 +322,38 @@ function Commands.status(args)
     Logging.info("Registered Turtles: " .. turtle_count)
     Logging.info("")
 
+    -- Build progress (Story 2.3 AC4)
+    if Swarm and Swarm.build then
+        local build = Swarm.build
+        local progress = Builder.get_progress(Swarm.sectors or {})
+        local sectors_complete = 0
+        local total_sectors = build.total_sectors or 0
+
+        if Swarm.sectors then
+            for _, sector in ipairs(Swarm.sectors) do
+                if sector.status == "complete" then
+                    sectors_complete = sectors_complete + 1
+                end
+            end
+        end
+
+        Logging.info("--- BUILD STATUS ---")
+        Logging.info("Type: " .. build.type .. " (" .. build.width .. "x" .. build.length .. ")")
+        Logging.info("Phase: " .. (build.phase or "UNKNOWN"))
+        Logging.info("Build: " .. progress .. "% complete (" .. sectors_complete .. "/" .. total_sectors .. " sectors)")
+        Logging.info("Total blocks: " .. (build.total_blocks or 0))
+        Logging.info("")
+    else
+        Logging.info("No active build")
+        Logging.info("")
+    end
+
+    -- Turtle list
     if turtle_count == 0 then
         Logging.info("No turtles registered yet.")
         Logging.info("Start turtles to have them auto-register.")
     else
+        Logging.info("--- TURTLES ---")
         Logging.info("ID       STATE      POSITION           LABEL")
         Logging.info("-------- ---------- ------------------ ----------------")
         for id, turtle in pairs(Swarm.turtles) do
