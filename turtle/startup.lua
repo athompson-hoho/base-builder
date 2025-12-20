@@ -1,6 +1,9 @@
 -- Base Builder Turtle Startup
 -- Runs on startup to check for updates, register with controller, then load main.lua
 
+-- Load the module system first
+dofile("/shared/loader.lua")
+
 -- Load dependencies
 local Config = require("shared.config")
 local Logging = require("shared.logging")

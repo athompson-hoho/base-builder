@@ -12,9 +12,12 @@
     "turtle": [
       "startup.lua",
       "main.lua",
-      "movement.lua"
+      "movement.lua",
+      "excavator.lua",
+      "builder.lua"
     ],
     "shared": [
+      "loader.lua",
       "config.lua",
       "logging.lua",
       "updater.lua"

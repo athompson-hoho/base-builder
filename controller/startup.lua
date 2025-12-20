@@ -1,6 +1,9 @@
 -- Base Builder Controller Startup
 -- Runs on startup to check for updates, open modem, then load main.lua
 
+-- Load the module system first
+dofile("/shared/loader.lua")
+
 -- Load dependencies
 local Config = require("shared.config")
 local Logging = require("shared.logging")
