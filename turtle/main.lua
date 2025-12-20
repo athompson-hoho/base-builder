@@ -172,8 +172,27 @@ local function handle_message(sender, message)
 
     elseif msg_type == "RESUME" then
         -- Resume operations (Story 2.7)
-        Logging.info("Resume command received")
-        -- Resume logic will be implemented in Epic 2
+        Logging.info("Resume command received from controller")
+
+        -- Restore sector from message if provided
+        if message.sector then
+            TurtleState.current_sector = message.sector
+            Logging.info("Restored sector " .. (message.sector.id or "?") .. " from controller")
+        elseif TurtleState.saved_sector then
+            -- Restore from saved sector (after recall)
+            TurtleState.current_sector = TurtleState.saved_sector
+            TurtleState.saved_sector = nil
+            Logging.info("Restored saved sector " .. (TurtleState.current_sector.id or "?"))
+        end
+
+        -- Transition to appropriate working state
+        if TurtleState.current_sector then
+            TurtleState.state = "TRAVELING"
+            Logging.info("Resuming work on sector " .. TurtleState.current_sector.id)
+        else
+            TurtleState.state = "IDLE"
+            Logging.info("No sector to resume - waiting for assignment")
+        end
 
     else
         Logging.debug("Unknown message type: " .. msg_type .. " from " .. sender)

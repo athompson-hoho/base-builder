@@ -492,9 +492,110 @@ function Commands.pause(args)
     Logging.info("Use 'resume' to continue or 'recall' to return turtles")
 end
 
---- Placeholder for resume command
+--- Resume a paused or interrupted build
+-- Usage: resume
 function Commands.resume(args)
-    Logging.info("[Story 2.7] Resume command not yet implemented")
+    if not Swarm then
+        Logging.error("No swarm state available")
+        return
+    end
+
+    -- Check for paused build in memory first
+    local build = Swarm.build
+
+    -- If not in memory, try to load from file
+    if not build then
+        if fs.exists(Config.BUILD_STATE_FILE) then
+            local file = fs.open(Config.BUILD_STATE_FILE, "r")
+            if file then
+                local content = file.readAll()
+                file.close()
+                if content and content ~= "" then
+                    build = textutils.unserialize(content)
+                end
+            end
+        end
+    end
+
+    -- Check if there's a build to resume
+    if not build then
+        Logging.info("No paused build found")
+        return
+    end
+
+    if build.phase == "COMPLETE" then
+        Logging.info("Build already complete. Use 'build room' to start new build.")
+        return
+    end
+
+    if build.phase ~= "PAUSED" then
+        Logging.info("Build is not paused (phase: " .. (build.phase or "unknown") .. ")")
+        return
+    end
+
+    -- Check for available turtles
+    local turtle_count = Commands.get_turtle_count()
+    if turtle_count == 0 then
+        Logging.error("No turtles available to resume build")
+        return
+    end
+
+    -- Restore build state
+    Swarm.build = build
+
+    -- Re-calculate sectors if not present
+    if not Swarm.sectors or #Swarm.sectors == 0 then
+        Swarm.sectors = Builder.calculate_sectors(
+            build.width,
+            build.length,
+            build.height,
+            build.origin,
+            turtle_count
+        )
+    end
+
+    -- Re-assign incomplete sectors to available turtles
+    local incomplete_sectors = {}
+    for _, sector in ipairs(Swarm.sectors) do
+        if sector.status ~= "complete" then
+            sector.status = "pending"
+            sector.assigned_to = nil
+            table.insert(incomplete_sectors, sector)
+        end
+    end
+
+    if #incomplete_sectors == 0 then
+        Logging.info("All sectors already complete!")
+        build.phase = "COMPLETE"
+        return
+    end
+
+    -- Assign sectors to available turtles
+    local assignments, pending = Builder.assign_sectors(incomplete_sectors, Swarm.turtles, rednet.send)
+    Swarm.assignments = assignments
+    Swarm.pending_sectors = pending
+
+    -- Update build phase
+    build.phase = "EXCAVATING"
+
+    -- Persist resumed state
+    local file = fs.open(Config.BUILD_STATE_FILE, "w")
+    if file then
+        file.write(textutils.serialize(build))
+        file.close()
+    end
+
+    local progress = Builder.get_progress(Swarm.sectors)
+    local assigned_count = 0
+    for _ in pairs(assignments) do
+        assigned_count = assigned_count + 1
+    end
+
+    Logging.info("Resuming build from " .. progress .. "%")
+    Logging.info("Re-assigned " .. assigned_count .. " sectors to turtles")
+    if #pending > 0 then
+        Logging.info(#pending .. " sectors queued for turtles that finish early")
+    end
 end
 
 --- Placeholder for cancel command
