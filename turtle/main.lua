@@ -6,6 +6,8 @@
 local Config = require("shared.config")
 local Logging = require("shared.logging")
 local Updater = require("shared.updater")
+local Excavator = require("turtle.excavator")
+local Builder = require("turtle.builder")
 
 -- ============================================================================
 -- TURTLE STATE
@@ -20,7 +22,8 @@ local TurtleState = {
     registered = false,
     last_task = nil,
     current_sector = nil,       -- Assigned sector from TASK_ASSIGN
-    saved_sector = nil          -- Saved sector for resume after RECALL
+    saved_sector = nil,         -- Saved sector for resume after RECALL
+    pending_task = nil          -- Task waiting to be executed
 }
 
 -- ============================================================================
@@ -133,8 +136,13 @@ local function handle_message(sender, message)
             })
             Logging.debug("Sent TASK_ACK for sector " .. sector.id)
 
-            -- Actual excavation/building will be implemented in Epic 3
-            Logging.info("[Epic 3] Sector execution not yet implemented")
+            -- Queue sector for excavation (Story 3.1)
+            TurtleState.pending_task = {
+                type = message.build_type or "room",
+                sector = sector,
+                controller_id = sender
+            }
+            os.queueEvent("task_assigned")
         else
             Logging.error("TASK_ASSIGN missing sector data")
         end
@@ -143,6 +151,10 @@ local function handle_message(sender, message)
         -- Recall to home (Story 2.5)
         Logging.info("Recall command received from controller")
         Logging.info("Reason: " .. (message.reason or "unknown"))
+
+        -- Stop any active excavation or building (Story 3.1/4.1)
+        Excavator.stop()
+        Builder.stop()
 
         -- Save current task for resume
         if TurtleState.current_sector then
@@ -160,6 +172,10 @@ local function handle_message(sender, message)
     elseif msg_type == "PAUSE" then
         -- Pause operations (Story 2.6)
         Logging.info("Pause command received from controller")
+
+        -- Stop any active excavation or building (Story 3.1/4.1)
+        Excavator.stop()
+        Builder.stop()
 
         -- Save current sector but don't clear it (different from recall)
         -- Turtle stays in place and waits for resume
@@ -300,6 +316,91 @@ local function input_handler()
     end
 end
 
+--- Task executor loop - processes pending tasks (Story 3.1)
+local function task_executor()
+    while true do
+        -- Wait for task_assigned event
+        os.pullEvent("task_assigned")
+
+        -- Check if there's a pending task
+        if TurtleState.pending_task then
+            local task = TurtleState.pending_task
+            TurtleState.pending_task = nil
+
+            if task.type == "room" then
+                -- Excavation phase (Story 3.1)
+                TurtleState.state = "EXCAVATING"
+                Logging.info("Starting excavation of sector " .. (task.sector.id or "?"))
+
+                local excavation_success = Excavator.excavate_sector(task.sector, task.controller_id)
+
+                if excavation_success then
+                    Logging.info("Sector excavation complete")
+
+                    -- Building phase (Story 4.1)
+                    TurtleState.state = "BUILDING"
+                    Logging.info("Starting wall placement for sector " .. (task.sector.id or "?"))
+
+                    local building_success = Builder.build_walls(task.sector, task.controller_id)
+
+                    if building_success then
+                        Logging.info("Sector wall placement complete")
+
+                        -- Floor phase (Story 4.2)
+                        TurtleState.state = "BUILDING"
+                        Logging.info("Starting floor placement for sector " .. (task.sector.id or "?"))
+
+                        local floor_success = Builder.build_floor(task.sector, task.controller_id)
+
+                        if floor_success then
+                            Logging.info("Sector floor placement complete")
+
+                            -- Ceiling phase (Story 4.3)
+                            TurtleState.state = "BUILDING"
+                            Logging.info("Starting ceiling placement for sector " .. (task.sector.id or "?"))
+
+                            local ceiling_success = Builder.build_ceiling(task.sector, task.controller_id)
+
+                            if ceiling_success then
+                                Logging.info("Sector ceiling placement complete")
+
+                                -- Ladder shaft phase (Story 4.4)
+                                TurtleState.state = "BUILDING"
+                                Logging.info("Starting ladder shaft for sector " .. (task.sector.id or "?"))
+
+                                local shaft_success = Builder.build_ladder_shaft(task.sector, task.controller_id)
+
+                                if shaft_success then
+                                    Logging.info("Sector ladder shaft complete")
+                                    TurtleState.state = "IDLE"
+                                    TurtleState.current_sector = nil
+                                else
+                                    Logging.error("Ladder shaft failed or interrupted")
+                                    TurtleState.state = "IDLE"
+                                end
+                            else
+                                Logging.error("Ceiling placement failed or interrupted")
+                                TurtleState.state = "IDLE"
+                            end
+                        else
+                            Logging.error("Floor placement failed or interrupted")
+                            TurtleState.state = "IDLE"
+                        end
+                    else
+                        Logging.error("Wall placement failed or interrupted")
+                        TurtleState.state = "IDLE"
+                    end
+                else
+                    Logging.error("Excavation failed or interrupted")
+                    TurtleState.state = "IDLE"
+                end
+            else
+                Logging.warn("Unknown task type: " .. tostring(task.type))
+            end
+        end
+    end
+end
+
 -- ============================================================================
 -- INITIALIZATION
 -- ============================================================================
@@ -375,6 +476,6 @@ Logging.info("Waiting for commands from controller...")
 
 -- Run all loops in parallel
 -- If any loop exits (e.g., Q pressed), program exits
-parallel.waitForAny(heartbeat_sender, message_listener, input_handler)
+parallel.waitForAny(heartbeat_sender, message_listener, input_handler, task_executor)
 
 Logging.info("Turtle shutdown complete")

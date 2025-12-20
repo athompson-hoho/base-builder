@@ -52,10 +52,36 @@ Config.ROOM_HEIGHT = 9                -- Total excavation height (7 walls + 2 cr
 Config.WALL_HEIGHT = 7                -- Height of room walls
 Config.MAX_ROOM_WIDTH = 64            -- Maximum room width
 Config.MAX_ROOM_LENGTH = 64           -- Maximum room length
+Config.BUILDING_MATERIAL = "minecraft:deepslate_bricks"  -- Default wall material
 
 -- Build origin fallback (used if GPS unavailable)
 Config.BUILD_ORIGIN_X = 0
 Config.BUILD_ORIGIN_Y = 64
 Config.BUILD_ORIGIN_Z = 0
+
+-- ============================================================================
+-- HOME BASE & AE2 CONFIGURATION
+-- ============================================================================
+
+-- Home base position (where ME Interface is located)
+Config.HOME_BASE_X = 0
+Config.HOME_BASE_Y = 64
+Config.HOME_BASE_Z = 0
+
+-- ME Interface is in front of turtle at home base
+Config.ME_INTERFACE_SIDE = "front"
+
+-- Material pull settings
+Config.MATERIAL_PULL_AMOUNT = 64      -- Items to pull per slot
+Config.MATERIAL_PULL_RETRIES = 3      -- Retry attempts before shortage
+Config.MATERIAL_PULL_DELAY = 5        -- Seconds between retries
+
+-- ============================================================================
+-- EXCAVATION CONFIGURATION
+-- ============================================================================
+
+Config.DIG_RETRY_MAX = 10             -- Max retries for gravel/sand falling blocks
+Config.DIG_RETRY_DELAY = 0.3          -- Seconds between dig retries
+Config.PROGRESS_UPDATE_INTERVAL = 10  -- Blocks between progress updates
 
 return Config
