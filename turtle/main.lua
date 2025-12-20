@@ -159,8 +159,16 @@ local function handle_message(sender, message)
 
     elseif msg_type == "PAUSE" then
         -- Pause operations (Story 2.6)
-        Logging.info("Pause command received")
-        -- Pause logic will be implemented in Epic 2
+        Logging.info("Pause command received from controller")
+
+        -- Save current sector but don't clear it (different from recall)
+        -- Turtle stays in place and waits for resume
+
+        -- Transition to IDLE state
+        TurtleState.state = "IDLE"
+
+        Logging.info("Turtle paused at current position")
+        Logging.info("Waiting for resume command...")
 
     elseif msg_type == "RESUME" then
         -- Resume operations (Story 2.7)

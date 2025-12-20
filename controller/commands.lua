@@ -445,9 +445,51 @@ function Commands.recall(args)
     Logging.info("Turtles will return to home base")
 end
 
---- Placeholder for pause command
+--- Pause all working turtles (stay in place)
+-- Usage: pause
 function Commands.pause(args)
-    Logging.info("[Story 2.6] Pause command not yet implemented")
+    if not Swarm or not Swarm.turtles then
+        Logging.error("No swarm state available")
+        return
+    end
+
+    -- Check if there's an active build
+    if not Swarm.build or Swarm.build.phase == "COMPLETE" then
+        Logging.info("No active build to pause")
+        return
+    end
+
+    if Swarm.build.phase == "PAUSED" then
+        Logging.info("Build is already paused")
+        return
+    end
+
+    -- Send PAUSE to all working turtles
+    local pause_count = 0
+    for id, turtle in pairs(Swarm.turtles) do
+        if turtle.state ~= "TIMEOUT" and turtle.state ~= "IDLE" then
+            rednet.send(id, {
+                type = "PAUSE"
+            })
+            pause_count = pause_count + 1
+        end
+    end
+
+    -- Update build phase
+    Swarm.build.phase = "PAUSED"
+
+    -- Persist paused state
+    local file = fs.open(Config.BUILD_STATE_FILE, "w")
+    if file then
+        file.write(textutils.serialize(Swarm.build))
+        file.close()
+    end
+
+    local progress = Builder.get_progress(Swarm.sectors or {})
+    Logging.info("Build paused at " .. progress .. "%")
+    Logging.info("Sent pause to " .. pause_count .. " working turtles")
+    Logging.info("Turtles will stay in current position")
+    Logging.info("Use 'resume' to continue or 'recall' to return turtles")
 end
 
 --- Placeholder for resume command
