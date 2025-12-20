@@ -32,23 +32,14 @@ local function require(module_path)
         error("Failed to read module: " .. module_path)
     end
 
-    -- Execute the module in a protected environment
-    -- Use metatable to inherit from _G, with custom require override
-    local env = setmetatable({
-        require = require,  -- Allow modules to require other modules
-    }, {
-        __index = _G
-    })
-
+    -- Load and execute in global scope (no sandboxing)
+    -- This ensures access to all standard Lua functions and ComputerCraft APIs
     local chunk, err = load(content, "@" .. file_path)
     if not chunk then
         error("Failed to parse module " .. module_path .. ": " .. (err or "unknown error"))
     end
 
-    -- Set the environment for the chunk (Lua 5.1 compatibility)
-    setfenv(chunk, env)
-
-    -- Execute and cache the result
+    -- Execute in global environment - modules will have access to all globals
     local result = chunk()
     modules[module_path] = result or true
 
