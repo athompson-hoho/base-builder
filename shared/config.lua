@@ -7,7 +7,7 @@ local Config = {}
 -- VERSION INFORMATION
 -- ============================================================================
 
-Config.VERSION = "1.0.0"
+Config.VERSION = "1.0.1"
 
 -- ============================================================================
 -- REPOSITORY & UPDATE CONFIGURATION
@@ -75,6 +75,14 @@ Config.ME_INTERFACE_SIDE = "front"
 Config.MATERIAL_PULL_AMOUNT = 64      -- Items to pull per slot
 Config.MATERIAL_PULL_RETRIES = 3      -- Retry attempts before shortage
 Config.MATERIAL_PULL_DELAY = 5        -- Seconds between retries
+
+-- Fuel chest location (for refueling, Story 5.7)
+Config.FUEL_CHEST_X = Config.HOME_BASE_X or 0
+Config.FUEL_CHEST_Y = Config.HOME_BASE_Y or 64
+Config.FUEL_CHEST_Z = (Config.HOME_BASE_Z or 0) + 1  -- One block away from home
+
+-- Material polling settings (Story 5.4)
+Config.MATERIAL_POLL_INTERVAL = 30    -- Seconds between material availability checks
 
 -- ============================================================================
 -- EXCAVATION CONFIGURATION
