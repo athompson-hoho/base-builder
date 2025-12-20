@@ -32,14 +32,14 @@ local function require(module_path)
         error("Failed to read module: " .. module_path)
     end
 
-    -- Load and execute in global scope (no sandboxing)
-    -- This ensures access to all standard Lua functions and ComputerCraft APIs
-    local chunk, err = load(content, "@" .. file_path)
+    -- Load module with explicit access to global environment
+    -- Pass _G as the environment parameter so chunks inherit all standard Lua globals
+    local chunk, err = load(content, "@" .. file_path, nil, _G)
     if not chunk then
         error("Failed to parse module " .. module_path .. ": " .. (err or "unknown error"))
     end
 
-    -- Execute in global environment - modules will have access to all globals
+    -- Execute the chunk - it now has full access to tonumber, pairs, type, etc.
     local result = chunk()
     modules[module_path] = result or true
 
