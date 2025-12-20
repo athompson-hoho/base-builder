@@ -74,10 +74,13 @@ local function require(module_path)
         unpack = unpack or table.unpack,
     }
 
-    local chunk, err = load(content, "@" .. file_path, "t", env)
+    local chunk, err = load(content, "@" .. file_path)
     if not chunk then
         error("Failed to parse module " .. module_path .. ": " .. (err or "unknown error"))
     end
+
+    -- Set the environment for the chunk (Lua 5.1 compatibility)
+    setfenv(chunk, env)
 
     -- Execute and cache the result
     local result = chunk()
