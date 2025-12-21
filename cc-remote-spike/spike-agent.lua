@@ -14,8 +14,8 @@
     spike
 --]]
 
--- Configuration (change this to your server IP)
-local SERVER_URL = "ws://localhost:3000"
+-- Configuration
+local SERVER_URL = "ws://cc-spike.thathohoguy.com"
 
 -- State
 local ws = nil
