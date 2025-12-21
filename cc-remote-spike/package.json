@@ -1,0 +1,13 @@
+{
+  "name": "cc-remote-spike",
+  "version": "0.0.1",
+  "description": "Technical spike to validate CC:Tweaked assumptions",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.18.0"
+  }
+}
