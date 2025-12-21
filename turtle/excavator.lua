@@ -27,8 +27,211 @@ local excavation_state = {
     controller_id = nil,
     should_stop = false,        -- Flag to stop excavation (set by PAUSE/RECALL)
     last_progress_update = 0,   -- Track last update to avoid skipping intervals
-    completed_layers = {}       -- Track which Y layers are done (Story 3.2)
+    completed_layers = {},      -- Track which Y layers are done (Story 3.2)
+    unbreakable_blocks = {},    -- Track unbreakable block locations (Story 6.5)
+    dig_failures = {},          -- Track dig failures per block position (Story 6.5)
+    skipped_blocks = 0          -- Count of unbreakable blocks skipped (Story 6.5)
 }
+
+-- ============================================================================
+-- HAZARD DETECTION AND RETREAT (Story 6.2)
+-- ============================================================================
+
+--- Check if block ahead is unbreakable (bedrock, obsidian, etc.)
+-- @return boolean: true if unbreakable
+-- @return string|nil: block name if detected
+local function detect_unbreakable()
+    local ok, block = turtle.inspect()
+    if ok and block then
+        local unbreakable_blocks = {
+            "minecraft:bedrock",
+            "minecraft:obsidian",
+            "minecraft:crying_obsidian",
+            "minecraft:deepslate",
+            "minecraft:deepslate_bricks",
+            "minecraft:reinforced_deepslate"
+        }
+
+        for _, name in ipairs(unbreakable_blocks) do
+            if block.name == name then
+                return true, block.name
+            end
+        end
+    end
+
+    return false, nil
+end
+
+--- Check if block ahead is liquid (water, lava)
+-- @return boolean: true if liquid
+-- @return string|nil: liquid type if detected
+local function detect_liquid()
+    local ok, block = turtle.inspect()
+    if ok and block then
+        local liquid_blocks = {"minecraft:water", "minecraft:lava"}
+        for _, name in ipairs(liquid_blocks) do
+            if block.name == name then
+                return true, block.name
+            end
+        end
+    end
+
+    return false, nil
+end
+
+--- Check if current position ahead has hazard
+-- @return string|nil: hazard type ("unbreakable", "liquid", or nil)
+-- @return string|nil: block/liquid name if hazard found
+local function check_hazard()
+    -- Check unbreakable first
+    local is_unbreakable, block_name = detect_unbreakable()
+    if is_unbreakable then
+        return "unbreakable", block_name
+    end
+
+    -- Check for liquids
+    local is_liquid, liquid_name = detect_liquid()
+    if is_liquid then
+        return "liquid", liquid_name
+    end
+
+    return nil, nil
+end
+
+-- ============================================================================
+-- UNBREAKABLE BLOCK HANDLING (Story 6.5)
+-- ============================================================================
+
+--- Mark a block as unbreakable for this sector
+-- @param x, y, z number: Block coordinates
+local function mark_unbreakable(x, y, z)
+    local key = x .. "," .. y .. "," .. z
+    if not excavation_state.unbreakable_blocks[key] then
+        Logging.warn("[UNBREAKABLE] Block at (" .. x .. ", " .. y .. ", " .. z .. ")")
+        excavation_state.unbreakable_blocks[key] = {
+            x = x, y = y, z = z,
+            detected_at = os.clock()
+        }
+    end
+end
+
+--- Check if block is marked as unbreakable
+-- @param x, y, z number: Block coordinates
+-- @return boolean: true if unbreakable
+local function is_unbreakable_block(x, y, z)
+    local key = x .. "," .. y .. "," .. z
+    return excavation_state.unbreakable_blocks[key] ~= nil
+end
+
+--- Get dig failure count for a block position
+-- @param x, y, z number: Block coordinates
+-- @return number: Current failure count
+local function get_dig_failures(x, y, z)
+    local key = x .. "," .. y .. "," .. z
+    return excavation_state.dig_failures[key] or 0
+end
+
+--- Increment dig failure count for a block position
+-- @param x, y, z number: Block coordinates
+-- @return number: Updated failure count
+local function increment_dig_failures(x, y, z)
+    local key = x .. "," .. y .. "," .. z
+    excavation_state.dig_failures[key] = (excavation_state.dig_failures[key] or 0) + 1
+    local count = excavation_state.dig_failures[key]
+
+    -- After 5 failed attempts, mark as unbreakable
+    if count >= 5 then
+        mark_unbreakable(x, y, z)
+    end
+
+    return count
+end
+
+--- Reset dig failure count for a block position (dig succeeded)
+-- @param x, y, z number: Block coordinates
+local function reset_dig_failures(x, y, z)
+    local key = x .. "," .. y .. "," .. z
+    excavation_state.dig_failures[key] = nil
+end
+
+--- Record current position in safe position history
+-- @param x, y, z number: Position coordinates
+local function record_safe_position(x, y, z)
+    if not excavation_state.position_history then
+        excavation_state.position_history = {}
+    end
+
+    table.insert(excavation_state.position_history, {
+        x = x, y = y, z = z,
+        timestamp = os.clock()
+    })
+
+    -- Keep only recent positions (memory limit)
+    if #excavation_state.position_history > 50 then
+        table.remove(excavation_state.position_history, 1)
+    end
+end
+
+--- Retreat to last safe position
+-- @return boolean: true if retreat successful
+local function retreat_to_safe_position()
+    if not excavation_state.position_history or #excavation_state.position_history < 2 then
+        Logging.warn("No safe position history - cannot retreat")
+        return false
+    end
+
+    -- Get second-to-last position (last safe position before hazard)
+    local safe_pos = excavation_state.position_history[#excavation_state.position_history - 1]
+    if not safe_pos then
+        return false
+    end
+
+    local current = Movement.get_position()
+    Logging.info("Retreating from (" .. current.x .. "," .. current.y .. "," .. current.z ..
+                 ") to (" .. safe_pos.x .. "," .. safe_pos.y .. "," .. safe_pos.z .. ")")
+
+    -- Navigate back to safe position
+    local ok, err = Movement.navigate_to(safe_pos.x, safe_pos.y, safe_pos.z)
+    if ok then
+        Logging.info("Retreat complete")
+        return true
+    else
+        Logging.error("Failed to retreat: " .. (err or "unknown"))
+        return false
+    end
+end
+
+--- Handle hazard detection during excavation
+-- @param hazard_type string: Type of hazard ("unbreakable" or "liquid")
+-- @param block_name string: Block name causing hazard
+-- @param position table: Current position {x, y, z}
+-- @param controller_id number: Controller computer ID
+-- @return boolean: true if retreat successful
+local function handle_hazard(hazard_type, block_name, position, controller_id)
+    Logging.warn("[HAZARD] " .. hazard_type .. " at (" .. position.x .. "," ..
+                 position.y .. "," .. position.z .. "): " .. block_name)
+
+    -- Attempt safe retreat
+    local retreat_ok = retreat_to_safe_position()
+    if not retreat_ok then
+        Logging.error("Failed to retreat from hazard - staying in place")
+    end
+
+    -- Notify controller of hazard
+    if controller_id then
+        rednet.send(controller_id, {
+            type = "HAZARD_DETECTED",
+            turtle_id = os.getComputerID(),
+            hazard_type = hazard_type,
+            block_name = block_name,
+            position = position,
+            timestamp = os.clock()
+        })
+        Logging.info("Sent HAZARD_DETECTED to controller")
+    end
+
+    return retreat_ok
+end
 
 -- ============================================================================
 -- DIG WITH RETRY (GRAVEL/SAND HANDLING)
@@ -122,7 +325,9 @@ function Excavator.save_state()
         current_z = excavation_state.current_z,
         blocks_excavated = excavation_state.blocks_excavated,
         direction = excavation_state.direction,  -- M1 fix: persist snake direction
-        completed_layers = excavation_state.completed_layers or {}
+        completed_layers = excavation_state.completed_layers or {},
+        unbreakable_blocks = excavation_state.unbreakable_blocks or {},  -- Story 6.5
+        skipped_blocks = excavation_state.skipped_blocks or 0  -- Story 6.5
     }
 
     local file = fs.open(STATE_FILE, "w")
@@ -218,8 +423,28 @@ function Excavator.excavate_layer(sector)
                 pos = Movement.get_position()
             end
 
-            -- Dig below (main excavation)
-            local dig_ok, dug_count = Excavator.dig_with_retry("down")
+            -- Dig below (main excavation) with unbreakable block handling (Story 6.5)
+            local block_below_pos = {x = x, y = pos.y - 1, z = z}
+            local dug_count = 0
+
+            -- Check if already marked as unbreakable
+            if is_unbreakable_block(block_below_pos.x, block_below_pos.y, block_below_pos.z) then
+                Logging.debug("Skipping known unbreakable block at (" .. block_below_pos.x ..
+                              ", " .. block_below_pos.y .. ", " .. block_below_pos.z .. ")")
+                excavation_state.skipped_blocks = excavation_state.skipped_blocks + 1
+            else
+                -- Try to dig
+                _, dug_count = Excavator.dig_with_retry("down")
+
+                -- Track failures for unbreakable detection (Story 6.5)
+                if dug_count == 0 then
+                    -- Dig failed - increment failure counter
+                    increment_dig_failures(block_below_pos.x, block_below_pos.y, block_below_pos.z)
+                else
+                    -- Dig succeeded - reset failure counter
+                    reset_dig_failures(block_below_pos.x, block_below_pos.y, block_below_pos.z)
+                end
+            end
 
             -- Update progress
             excavation_state.blocks_excavated = excavation_state.blocks_excavated + dug_count
@@ -244,6 +469,17 @@ function Excavator.excavate_layer(sector)
             else
                 if x <= end_x then break end
                 x = x - 1
+            end
+
+            -- Check for hazards before moving forward (Story 6.2)
+            local hazard_type, block_name = check_hazard()
+            if hazard_type then
+                local position = Movement.get_position()
+                handle_hazard(hazard_type, block_name, position, excavation_state.controller_id)
+                -- Return from excavation on hazard
+                excavation_state.last_progress_update = excavation_state.blocks_excavated
+                Excavator.save_state()
+                return false
             end
 
             -- Navigate to next X (might need to dig forward)
@@ -303,6 +539,8 @@ function Excavator.excavate_sector(sector, controller_id)
         excavation_state.blocks_excavated = saved_state.blocks_excavated
         excavation_state.direction = saved_state.direction or 1  -- M1 fix: restore snake direction
         excavation_state.completed_layers = saved_state.completed_layers or {}
+        excavation_state.unbreakable_blocks = saved_state.unbreakable_blocks or {}  -- Story 6.5
+        excavation_state.skipped_blocks = saved_state.skipped_blocks or 0  -- Story 6.5
         resuming = true
     else
         -- Fresh start - initialize state
@@ -312,6 +550,8 @@ function Excavator.excavate_sector(sector, controller_id)
         excavation_state.current_z = sector.z_start
         excavation_state.blocks_excavated = 0
         excavation_state.completed_layers = {}  -- Story 3.2 - AC5
+        excavation_state.unbreakable_blocks = {}  -- Story 6.5
+        excavation_state.skipped_blocks = 0  -- Story 6.5
     end
 
     excavation_state.controller_id = controller_id
@@ -480,6 +720,17 @@ function Excavator.set_state(state)
     if state.blocks_excavated then excavation_state.blocks_excavated = state.blocks_excavated end
     if state.direction then excavation_state.direction = state.direction end  -- L1 fix
     if state.completed_layers then excavation_state.completed_layers = state.completed_layers end  -- L1 fix
+end
+
+--- Get hazard detection API (for use in excavation loops)
+-- @return table: Hazard API {check, record, handle, retreat}
+function Excavator.get_hazard_api()
+    return {
+        check = check_hazard,
+        record = record_safe_position,
+        handle = handle_hazard,
+        retreat = retreat_to_safe_position
+    }
 end
 
 return Excavator

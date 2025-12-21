@@ -341,4 +341,66 @@ function Movement.time_since_move()
     return os.clock() - last_move_time
 end
 
+-- ============================================================================
+-- FUEL RESERVE CALCULATION (Story 5.6)
+-- ============================================================================
+
+--- Calculate required fuel reserve to return home
+-- @param pos table: Current position {x, y, z} (default: current position)
+-- @param home table: Home base position {x, y, z} (default: config)
+-- @return number: Required fuel to return home (with safety margin)
+function Movement.calculate_fuel_reserve(pos, home)
+    pos = pos or Movement.get_position()
+    home = home or {
+        x = Config.HOME_BASE_X or 0,
+        y = Config.HOME_BASE_Y or 64,
+        z = Config.HOME_BASE_Z or 0
+    }
+
+    -- Calculate Manhattan distance
+    local distance = math.abs(pos.x - home.x) +
+                     math.abs(pos.y - home.y) +
+                     math.abs(pos.z - home.z)
+
+    -- Apply safety margin (1.5x distance) and enforce minimum
+    local reserve = math.max(distance * 1.5, 100)
+
+    Logging.debug("Fuel reserve needed: " .. math.ceil(reserve) ..
+                  " (distance: " .. distance .. ")")
+
+    return reserve
+end
+
+--- Check if turtle has enough fuel to continue operating
+-- @param safety_margin number: Additional fuel to keep safe (default 50)
+-- @return boolean: true if can continue, false if should RTB
+function Movement.has_fuel_to_continue(safety_margin)
+    safety_margin = safety_margin or 50
+
+    local pos = Movement.get_position()
+    if not pos then
+        Logging.warn("Could not determine position for fuel check")
+        return false  -- Conservative: assume stranded
+    end
+
+    local current_fuel = turtle.getFuelLevel()
+    local reserve = Movement.calculate_fuel_reserve(pos)
+    local needed = reserve + safety_margin
+
+    if current_fuel < needed then
+        local shortfall = needed - current_fuel
+        Logging.warn("Fuel low: " .. current_fuel .. " / " .. needed ..
+                     " (need " .. shortfall .. " more)")
+        return false
+    end
+
+    -- Log status if fuel margin is low
+    local fuel_remaining = current_fuel - needed
+    if fuel_remaining < (reserve * 0.5) then
+        Logging.info("Fuel margin: " .. fuel_remaining .. " (threshold: " .. math.ceil(reserve * 0.5) .. ")")
+    end
+
+    return true
+end
+
 return Movement
