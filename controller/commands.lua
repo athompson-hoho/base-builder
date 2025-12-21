@@ -598,9 +598,53 @@ function Commands.resume(args)
     end
 end
 
---- Placeholder for cancel command
+--- Cancel a paused build (clear state and reset sectors)
+-- Usage: cancel
+-- Clears all paused state and marks sectors unassigned for fresh start
 function Commands.cancel(args)
-    Logging.info("[Future] Cancel command not yet implemented")
+    if not Swarm then
+        Logging.error("No swarm state available")
+        return
+    end
+
+    -- Check if there's a paused build
+    if not Swarm.build or Swarm.build.phase ~= "PAUSED" then
+        Logging.info("No paused build to cancel")
+        return
+    end
+
+    -- Clear build state files
+    if fs.exists(Config.BUILD_STATE_FILE) then
+        fs.delete(Config.BUILD_STATE_FILE)
+    end
+    if fs.exists("/state/excavation.dat") then
+        fs.delete("/state/excavation.dat")
+    end
+
+    -- Clear memory state
+    Swarm.build = nil
+    Swarm.assignments = {}
+    Swarm.sectors = {}
+    Swarm.material_polling = nil
+
+    -- Send RECALL to all turtles to return home
+    local recall_count = 0
+    for id, turtle in pairs(Swarm.turtles) do
+        if turtle.state ~= "TIMEOUT" and turtle.state ~= "IDLE" then
+            rednet.send(id, {
+                type = "RECALL"
+            })
+            recall_count = recall_count + 1
+        end
+    end
+
+    Logging.info("Cancelled paused build - cleared all state")
+    Logging.info("Sent recall to " .. recall_count .. " turtles")
+
+    print("")
+    print("[CANCELLED] Paused build cleared")
+    print("Turtles returning home - use 'build room' to start fresh")
+    print("")
 end
 
 --- Display help information

@@ -116,6 +116,61 @@ end
 -- MESSAGE HANDLERS
 -- ============================================================================
 
+--- Recover sector assignment for a reconnected turtle (Story 6.4)
+-- @param turtle_id number: Turtle reconnecting
+local function recover_turtle_assignment(turtle_id)
+    local turtle = Swarm.turtles[turtle_id]
+    if not turtle then return end
+
+    -- Try to restore previous assignment
+    local restored_sector = nil
+    for sector_id, assignment in pairs(Swarm.assignments or {}) do
+        if assignment.turtle_id == turtle_id and not assignment.completed then
+            restored_sector = sector_id
+            break
+        end
+    end
+
+    -- If previous sector no longer available, find next incomplete
+    if not restored_sector then
+        for _, sector in ipairs(Swarm.sectors or {}) do
+            if not sector.completed and sector.status ~= "assigned" then
+                restored_sector = sector.id
+                break
+            end
+        end
+    end
+
+    if restored_sector then
+        -- Assign sector to reconnected turtle
+        local sector = Swarm.sectors[restored_sector] or {}
+        Swarm.assignments[turtle_id] = {
+            sector_id = restored_sector,
+            turtle_id = turtle_id,
+            start_x = sector.start_x,
+            start_z = sector.start_z,
+            size = sector.size,
+            assigned_at = os.clock()
+        }
+
+        -- Send task assignment
+        rednet.send(turtle_id, {
+            type = "TASK_ASSIGN",
+            sector_id = restored_sector,
+            start_x = sector.start_x,
+            start_z = sector.start_z,
+            size = sector.size,
+            depth = sector.depth or 64
+        })
+
+        Logging.info("Reassigned sector " .. restored_sector .. " to turtle " .. turtle_id ..
+                     " on reconnection")
+    else
+        Logging.warn("No incomplete sectors to reassign to turtle " .. turtle_id)
+        turtle.state = "IDLE"
+    end
+end
+
 --- Handle incoming message from a turtle
 -- @param sender number: Turtle's computer ID
 -- @param message table: Message data with type field
@@ -146,12 +201,24 @@ local function handle_message(sender, message)
         save_swarm_state()  -- Persist roster change
 
     elseif msg_type == "HEARTBEAT" then
-        -- Heartbeat update (Story 1.3)
+        -- Heartbeat update (Story 1.3) with reconnection detection (Story 6.4)
         if Swarm.turtles[sender] then
+            local was_offline = Swarm.turtles[sender].state == "TIMEOUT"
+
             Swarm.turtles[sender].position = message.position or Swarm.turtles[sender].position
             Swarm.turtles[sender].state = message.state or Swarm.turtles[sender].state
             Swarm.turtles[sender].last_heartbeat = os.clock()
             Logging.debug("Heartbeat from turtle " .. sender)
+
+            -- Detect reconnection and recover assignments (Story 6.4)
+            if was_offline then
+                Logging.info("[RECONNECT] Turtle " .. sender .. " coming online - recovering work")
+                if Swarm.build and Swarm.build.phase == "BUILDING" then
+                    recover_turtle_assignment(sender)
+                elseif Swarm.build and Swarm.build.phase == "PAUSED" then
+                    Logging.info("Build paused - turtle " .. sender .. " ready for resume")
+                end
+            end
         else
             Logging.warn("Heartbeat from unregistered turtle " .. sender)
         end
@@ -279,6 +346,75 @@ local function handle_message(sender, message)
                          (Swarm.build.total_blocks or 0) .. " blocks")
         end
 
+    elseif msg_type == "MATERIAL_SHORTAGE" then
+        -- Handle material shortage notification (Story 5.4)
+        local turtle_id = sender
+        local material = message.material or "unknown"
+
+        Logging.warn("Material shortage reported by turtle " .. turtle_id .. ": " .. material)
+
+        -- Pause build due to shortage
+        if Swarm.build and Swarm.build.phase ~= "COMPLETE" and Swarm.build.phase ~= "PAUSED" then
+            Swarm.build.phase = "PAUSED"
+            Swarm.build.pause_reason = "material_shortage"
+            Swarm.build.paused_material = material
+
+            -- Persist paused state
+            local file = fs.open(Config.BUILD_STATE_FILE, "w")
+            if file then
+                file.write(textutils.serialize(Swarm.build))
+                file.close()
+            end
+
+            print("")
+            print("[!] Build paused: " .. material .. " low. Refill AE2 to continue.")
+            print("")
+
+            -- Start polling for material availability
+            Swarm.material_polling = {
+                enabled = true,
+                material = material,
+                next_poll = os.clock()
+            }
+        end
+
+    elseif msg_type == "HAZARD_DETECTED" then
+        -- Turtle detected environmental hazard (Story 6.2)
+        local turtle_id = sender
+        local hazard_type = message.hazard_type or "unknown"
+        local block_name = message.block_name or "?"
+        local position = message.position or {x = "?", y = "?", z = "?"}
+
+        Logging.error("[HAZARD] Turtle " .. turtle_id .. " encountered " .. hazard_type ..
+                      " (" .. block_name .. ") at (" .. position.x .. "," .. position.y ..
+                      "," .. position.z .. ")")
+
+        -- Pause build on hazard
+        if Swarm.build and Swarm.build.phase ~= "COMPLETE" then
+            Swarm.build.phase = "PAUSED"
+            Swarm.build.pause_reason = "hazard_detected"
+            Swarm.build.hazard = {
+                turtle_id = turtle_id,
+                type = hazard_type,
+                block = block_name,
+                position = position,
+                detected_at = os.clock()
+            }
+
+            -- Save paused state
+            local file = fs.open(Config.BUILD_STATE_FILE, "w")
+            if file then
+                file.write(textutils.serialize(Swarm.build))
+                file.close()
+            end
+
+            print("")
+            print("[!] Build paused due to hazard at (" .. position.x .. "," .. position.y ..
+                  "," .. position.z .. "): " .. block_name)
+            print("[!] Review location and use 'skip_hazard' to continue.")
+            print("")
+        end
+
     else
         Logging.debug("Unknown message type: " .. msg_type .. " from " .. sender)
     end
@@ -300,6 +436,191 @@ local function check_timeouts()
             turtle.state = "IDLE"
         end
     end
+end
+
+--- Check material polling status and auto-resume if materials available
+-- For MVP, this checks if admin has manually refilled AE2
+-- In a full implementation, this would query the ME system directly
+local function check_material_polling()
+    if not Swarm.material_polling or not Swarm.material_polling.enabled then
+        return
+    end
+
+    local current_time = os.clock()
+    local poll_interval = Config.MATERIAL_POLL_INTERVAL or 30  -- 30 seconds between polls
+
+    -- Check if it's time to poll
+    if current_time < Swarm.material_polling.next_poll then
+        return
+    end
+
+    -- Update next poll time
+    Swarm.material_polling.next_poll = current_time + poll_interval
+
+    local material = Swarm.material_polling.material
+    Logging.debug("Polling for material availability: " .. material)
+
+    -- For MVP: just wait for admin to refill manually
+    -- Full implementation would query ME system or check a designated turtle
+    -- For now, we show a status message but don't auto-resume
+    -- (Admin must explicitly type 'resume' after refilling AE2)
+end
+
+-- ============================================================================
+-- PERIODIC STATE PERSISTENCE (Story 6.6)
+-- ============================================================================
+
+local last_state_save = 0
+local state_save_interval = 30  -- Save every 30 seconds
+
+--- Save all persistent state to disk (Story 6.6)
+-- Called periodically to prevent loss of progress on crash
+local function save_all_state()
+    local current_time = os.clock()
+
+    -- Only save if interval elapsed
+    if current_time < last_state_save + state_save_interval then
+        return
+    end
+
+    -- Save build state (if active)
+    if Swarm.build then
+        -- Ensure state directory exists
+        if not fs.exists("/state") then
+            fs.makeDir("/state")
+        end
+
+        -- Atomic save: write to temp, then move
+        local temp_file = Config.BUILD_STATE_FILE .. ".tmp"
+        local file = fs.open(temp_file, "w")
+        if file then
+            file.write(textutils.serialize(Swarm.build))
+            file.close()
+
+            -- Backup existing file before overwrite
+            if fs.exists(Config.BUILD_STATE_FILE) then
+                local backup_file = Config.BUILD_STATE_FILE .. ".bak"
+                if fs.exists(backup_file) then
+                    fs.delete(backup_file)
+                end
+                fs.copy(Config.BUILD_STATE_FILE, backup_file)
+            end
+
+            -- Atomic rename
+            if fs.exists(Config.BUILD_STATE_FILE) then
+                fs.delete(Config.BUILD_STATE_FILE)
+            end
+            fs.move(temp_file, Config.BUILD_STATE_FILE)
+
+            Logging.debug("Saved build state periodically")
+        else
+            Logging.warn("Failed to save build state")
+        end
+    end
+
+    -- Save swarm state (turtle roster)
+    save_swarm_state()
+
+    last_state_save = current_time
+end
+
+-- ============================================================================
+-- SERVER RESTART RECOVERY (Story 6.7)
+-- ============================================================================
+
+--- Display recovery status on startup (Story 6.7)
+local function display_recovery_status()
+    print("")
+    print("================================================")
+    print("         RECOVERY IN PROGRESS")
+    print("================================================")
+    print("")
+
+    -- Display state
+    local turtle_count = 0
+    for _ in pairs(Swarm.turtles) do
+        turtle_count = turtle_count + 1
+    end
+
+    if Swarm.build then
+        local progress = Swarm.build.progress or 0
+        local sectors_done = Swarm.build.sectors_completed or 0
+        print("Build Progress: " .. progress .. "%")
+        print("Sectors Complete: " .. sectors_done)
+        print("Build ID: " .. (Swarm.build.id or "unknown"))
+    end
+
+    print("Expected Turtles: " .. turtle_count)
+    print("")
+    print("Waiting for turtles to reconnect... (60 second grace period)")
+    print("")
+end
+
+--- Wait for turtles to reconnect during startup (Story 6.7)
+local function wait_for_reconnection_grace_period()
+    local grace_start = os.clock()
+    local grace_period = 60  -- 60 seconds
+
+    while true do
+        local elapsed = os.clock() - grace_start
+        if elapsed >= grace_period then
+            break
+        end
+
+        -- Accept messages (heartbeats trigger reconnection)
+        local sender, message = rednet.receive(1)
+        if sender then
+            handle_message(sender, message)
+        end
+
+        -- Show progress every 10 seconds
+        if math.floor(elapsed) % 10 == 0 and elapsed > 0 then
+            local connected = 0
+            for _, turtle in pairs(Swarm.turtles) do
+                if turtle.state == "IDLE" or turtle.state == "ONLINE" then
+                    connected = connected + 1
+                end
+            end
+            local expected = 0
+            for _ in pairs(Swarm.turtles) do
+                expected = expected + 1
+            end
+            if connected > 0 then
+                Logging.info("Reconnection progress: " .. connected .. "/" .. expected .. " turtles online")
+            end
+        end
+    end
+
+    -- Grace period complete - show final status
+    local connected = 0
+    local expected = 0
+    for _, turtle in pairs(Swarm.turtles) do
+        expected = expected + 1
+        if turtle.state == "IDLE" or turtle.state == "ONLINE" or turtle.state ~= "TIMEOUT" then
+            connected = connected + 1
+        end
+    end
+
+    print("")
+    print("================================================")
+    print("   RECONNECTION GRACE PERIOD COMPLETE")
+    print("================================================")
+    print("Connected: " .. connected .. "/" .. expected .. " turtles")
+    print("")
+
+    if Swarm.build and Swarm.build.phase == "PAUSED" then
+        print("Paused Build Status:")
+        if Swarm.build.pause_reason then
+            print("  Reason: " .. Swarm.build.pause_reason)
+        end
+        print("")
+    end
+
+    print("OPTIONS:")
+    print("  'resume'  - Continue build from saved state")
+    print("  'recall'  - Cancel paused build")
+    print("  'status'  - Show current status")
+    print("")
 end
 
 -- ============================================================================
@@ -327,6 +648,12 @@ end
 
 --- Command input loop - handles user commands
 local function command_loop()
+    -- Display recovery status if we have saved state (Story 6.7)
+    if next(Swarm.turtles) ~= nil or Swarm.build then
+        display_recovery_status()
+        wait_for_reconnection_grace_period()
+    end
+
     display_startup_banner()
 
     while true do
@@ -372,6 +699,10 @@ local function message_listener()
         end
         -- Check for timeouts periodically
         check_timeouts()
+        -- Check material polling status
+        check_material_polling()
+        -- Periodic state persistence (Story 6.6)
+        save_all_state()
     end
 end
 

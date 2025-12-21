@@ -1,0 +1,45 @@
+{
+  "name": "cc-remote",
+  "version": "0.1.0",
+  "description": "Remote debugging bridge for ComputerCraft - Connect CC:Tweaked turtles and computers to Claude Code via MCP",
+  "type": "module",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "start": "tsx src/server/index.ts",
+    "start:mcp": "tsx src/mcp/index.ts",
+    "dev": "tsx watch src/server/index.ts",
+    "build": "tsc -p tsconfig.server.json && tsc -p tsconfig.mcp.json",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:mcp": "tsc -p tsconfig.mcp.json",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "generate-token": "tsx scripts/generate-token.ts"
+  },
+  "keywords": [
+    "computercraft",
+    "cc-tweaked",
+    "minecraft",
+    "mcp",
+    "debugging",
+    "remote-execution"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.21.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.17.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

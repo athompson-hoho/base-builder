@@ -607,4 +607,215 @@ function Inventory.load_inventory_state()
     return nil
 end
 
+-- ============================================================================
+-- SELF-REFUELING FROM MINED COAL (Story 5.5)
+-- ============================================================================
+
+--- Check if turtle should refuel
+-- @return boolean: true if fuel below threshold
+function Inventory.should_refuel()
+    local current_fuel = turtle.getFuelLevel()
+    local threshold = 500  -- ~6 minutes of operation
+    return current_fuel < threshold
+end
+
+--- Refuel from coal in inventory
+-- Consumes coal from mining slots (6-16) to reach high fuel level
+-- Keeps minimum 16 coal in slot 1 for emergency reserve
+-- @return boolean: true if refueled successfully
+-- @return number: new fuel level
+function Inventory.refuel_from_coal()
+    local fuel_slot = FUEL_SLOT  -- Slot 1
+    local current_fuel = turtle.getFuelLevel()
+    local target_fuel = 2000  -- Refuel to this level
+    local coal_reserve = 16   -- Keep this much in emergency slot
+
+    if current_fuel >= target_fuel then
+        return true, current_fuel  -- Already have enough
+    end
+
+    -- Find coal in mining slots
+    local coal_found = 0
+    for _, slot in ipairs(MINING_SLOTS) do
+        local detail = turtle.getItemDetail(slot)
+        if detail and detail.name == "minecraft:coal" then
+            coal_found = coal_found + turtle.getItemCount(slot)
+        end
+    end
+
+    -- Need at least 1 coal to refuel
+    if coal_found < 1 then
+        Logging.debug("No coal available to refuel")
+        return false, current_fuel
+    end
+
+    -- Check if we have coal reserve in slot 1
+    local fuel_slot_coal = 0
+    local fuel_detail = turtle.getItemDetail(fuel_slot)
+    if fuel_detail and fuel_detail.name == "minecraft:coal" then
+        fuel_slot_coal = turtle.getItemCount(fuel_slot)
+    end
+
+    -- Calculate how much coal we can burn (keep reserve)
+    local coal_to_burn = coal_found - math.max(0, coal_reserve - fuel_slot_coal)
+    if coal_to_burn <= 0 then
+        Logging.debug("Coal reserve full, not refueling")
+        return true, current_fuel
+    end
+
+    -- Move coal to fuel slot and burn it
+    local fuel_gained = 0
+    for _, slot in ipairs(MINING_SLOTS) do
+        if coal_to_burn <= 0 then
+            break
+        end
+
+        local detail = turtle.getItemDetail(slot)
+        if detail and detail.name == "minecraft:coal" then
+            local count = turtle.getItemCount(slot)
+            local to_burn = math.min(count, coal_to_burn)
+
+            if to_burn > 0 then
+                turtle.select(slot)
+                -- Move coal to fuel slot
+                turtle.transferTo(fuel_slot, to_burn)
+
+                -- Refuel from fuel slot
+                turtle.select(fuel_slot)
+                local ok = turtle.refuel(to_burn)
+                if ok then
+                    fuel_gained = fuel_gained + (to_burn * 80)  -- 1 coal = 80 fuel
+                    coal_to_burn = coal_to_burn - to_burn
+                end
+            end
+        end
+    end
+
+    local new_fuel = turtle.getFuelLevel()
+    if fuel_gained > 0 then
+        Logging.info("Refueled " .. fuel_gained .. " (now at " .. new_fuel .. " fuel)")
+    end
+
+    return fuel_gained > 0, new_fuel
+end
+
+-- ============================================================================
+-- HOME BASE REFUELING (Story 5.7)
+-- ============================================================================
+
+--- Navigate to fuel chest (adjacent to home base)
+-- @return boolean: true if arrived at fuel chest
+function Inventory.navigate_to_fuel_chest()
+    local fuel_chest_x = Config.FUEL_CHEST_X or (Config.HOME_BASE_X or 0)
+    local fuel_chest_y = Config.FUEL_CHEST_Y or (Config.HOME_BASE_Y or 64)
+    local fuel_chest_z = Config.FUEL_CHEST_Z or ((Config.HOME_BASE_Z or 0) + 1)
+
+    Logging.info("Navigating to fuel chest (" .. fuel_chest_x .. ", " ..
+                 fuel_chest_y .. ", " .. fuel_chest_z .. ")")
+
+    local nav_ok, nav_err = Movement.navigate_to(fuel_chest_x, fuel_chest_y, fuel_chest_z)
+    if not nav_ok then
+        Logging.error("Failed to navigate to fuel chest: " .. (nav_err or "unknown"))
+        return false
+    end
+
+    Logging.info("Arrived at fuel chest")
+    return true
+end
+
+--- Pull coal from fuel chest
+-- @return boolean: true if coal obtained
+-- @return number: coal items obtained
+function Inventory.pull_fuel_from_chest()
+    local fuel_slot = FUEL_SLOT  -- Slot 1
+    local coal_pulled = 0
+
+    turtle.select(fuel_slot)
+
+    -- Try to suck from chest (assumes turtle is facing it)
+    local ok, result = pcall(function()
+        return turtle.suck()  -- Pull into selected slot
+    end)
+
+    if ok and result then
+        coal_pulled = turtle.getItemCount(fuel_slot)
+        Logging.info("Pulled " .. coal_pulled .. " coal from chest")
+    else
+        Logging.debug("No coal available in chest")
+    end
+
+    return coal_pulled > 0, coal_pulled
+end
+
+--- Refuel to target level from chest coal
+-- @param target_fuel number: Target fuel level (default 2000)
+-- @return boolean: true if refueled successfully
+-- @return number: final fuel level
+function Inventory.refuel_from_chest(target_fuel)
+    target_fuel = target_fuel or 2000
+    local fuel_slot = FUEL_SLOT
+
+    local start_fuel = turtle.getFuelLevel()
+    if start_fuel >= target_fuel then
+        return true, start_fuel
+    end
+
+    -- Pull coal from chest repeatedly until at target or chest empty
+    local attempts = 0
+    local max_attempts = 5
+
+    while attempts < max_attempts do
+        local got_coal, count = Inventory.pull_fuel_from_chest()
+
+        if not got_coal or count == 0 then
+            Logging.info("No more coal in chest")
+            break
+        end
+
+        -- Refuel with coal
+        turtle.select(fuel_slot)
+        local current_coal = turtle.getItemCount(fuel_slot)
+
+        local refueled = turtle.refuel(current_coal)
+        if refueled then
+            local current_fuel = turtle.getFuelLevel()
+            Logging.debug("Refueled " .. current_coal .. " (now at " .. current_fuel .. ")")
+
+            if current_fuel >= target_fuel then
+                Logging.info("Reached target fuel (" .. target_fuel .. ")")
+                return true, current_fuel
+            end
+        else
+            Logging.warn("Failed to refuel with coal")
+            break
+        end
+
+        attempts = attempts + 1
+    end
+
+    local final_fuel = turtle.getFuelLevel()
+    Logging.info("Refueled to " .. final_fuel)
+
+    return final_fuel > start_fuel, final_fuel
+end
+
+--- Full refueling sequence at home base
+-- Navigates to fuel chest, pulls coal, refuels to target level
+-- @param target_fuel number: Target fuel level (default 2000)
+-- @return boolean: true if refueling successful (fuel > start level)
+-- @return number: final fuel level
+function Inventory.refuel_at_home(target_fuel)
+    target_fuel = target_fuel or 2000
+
+    -- Navigate to fuel chest
+    local arrived = Inventory.navigate_to_fuel_chest()
+    if not arrived then
+        return false, turtle.getFuelLevel()
+    end
+
+    -- Refuel from chest
+    local success, final_fuel = Inventory.refuel_from_chest(target_fuel)
+    return success, final_fuel
+end
+
 return Inventory

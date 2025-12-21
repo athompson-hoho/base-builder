@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist/mcp",
+    "rootDir": "./src"
+  },
+  "include": ["src/shared/**/*", "src/mcp/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}
